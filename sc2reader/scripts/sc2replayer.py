@@ -7,6 +7,7 @@ import fcntl
 
 import sc2reader
 from sc2reader.objects import *
+from sc2reader.events import *
 
 def myGetch():
     fd = sys.stdin.fileno()
@@ -25,14 +26,14 @@ def myGetch():
     finally:
         termios.tcsetattr(fd, termios.TCSAFLUSH, oldterm)
         fcntl.fcntl(fd, fcntl.F_SETFL, oldflags)
+    return c
 
 def get_args():
     import argparse
 
     parser = argparse.ArgumentParser(
         description="""Step by step replay of game events; shows only the
-        Initialization, Ability, and Selection events by default. Press any
-        key to advance through the events in sequential order.""",
+        Initialization, Ability, and Selection events by default.""",
         epilog="And that's all folks")
 
     parser.add_argument('FILE',type=str,
@@ -45,15 +46,25 @@ def get_args():
         help="Shows the hotkey events in the event stream.")
     parser.add_argument('--cameras',default=False,action="store_true",
         help="Shows the camera events in the event stream.")
+    parser.add_argument('--step', default=False, action="store_true",
+        help="Displays one event at a time. Press any button to display the next or 'q' to quit.")
+    parser.add_argument('--frame', default=False, action="store_true",
+        help="Displays the current frame next to the time.")
+    parser.add_argument('--map', default=False, action="store_true",
+        help="Download map info.")
 
     return parser.parse_args()
 
 def main():
     args = get_args()
-    for filename in sc2reader.utils.get_files(args.FILE):
-        replay = sc2reader.read_file(filename,debug=True)
+    # TODO: Find out why the debug option must be here.
+    for replay in sc2reader.load_replays(args.FILE, options={"load_map":args.map, "debug":True}):
+
         print "Release {0}".format(replay.release_string)
-        print "{0} on {1}".format(replay.type,replay.map)
+        if args.map:
+            print "{0} on {1}".format(replay.type, replay.map.name)
+        else:
+            print replay.type
         for player in replay.players:
             print player
         print "\n--------------------------\n\n"
@@ -65,7 +76,7 @@ def main():
             events = replay.events
 
         # Loop through the events
-        data = sc2reader.config.build_data[replay.build]
+        #data = sc2reader.data.create_build(replay.build)
         for event in events:
             try:
                 event.apply(data)
@@ -74,6 +85,8 @@ def main():
                     myGetch()
                 else:
                     raise e
+            except Exception as e:
+                pass
 
             # Use their options to filter the event stream
 
@@ -84,11 +97,18 @@ def main():
                        isinstance(event,GameStartEvent) or\
                        (args.hotkeys and isinstance(event,HotkeyEvent)) or\
                        (args.cameras and isinstance(event,CameraEvent)):
-                '''
-                if isinstance(event, SelectionEvent) or isinstance(event, HotkeyEvent):
-                '''
-                print event
-                #myGetch()
+                if args.frame:
+                    print "{:>6}   {}".format(event.frame, event)
+                else:
+                    print event
+                #if isinstance(event, SelectionEvent):
+                #    print event.bank
+                #    print event.objects
+                
+                if args.step:
+                    if myGetch() == 'q':
+                        print "Quitting..."
+                        break
                 if args.bytes:
                     print "\t"+event.bytes.encode('hex')
 
