@@ -1,0 +1,22 @@
+
+** TODO Scan corners of maps
+
+To check that the calculations are correctly done.
+
+** TODO Parse camera bounds according to http://www.galaxywiki.net/MapInfo_(File_Format)
+
+Camera is a subrectangle of Map
+
+(left, bottom, right, top)
+
+e.g on
+ 
+-- Cloud Kingdom LE --
+
+camera = (25, 44, 137, 168)
+   map = ( 0,  0, 160, 208) 
+
+-- Ohana LE --
+
+camera = (24, 17, 137, 151)
+   map = ( 0,  0, 160, 184)
