@@ -3,20 +3,25 @@
 
 To check that the calculations are correctly done.
 
-** TODO Parse camera bounds according to http://www.galaxywiki.net/MapInfo_(File_Format)
+** TODO Parse camera bounds according to
+   http://www.galaxywiki.net/MapInfo_(File_Format)
+   - Note taken on [2013-01-13 sö 00:46] \\
+     Apparentely the +7/+4/-7/-4 data in the above link was wrong and screwed up the heatmaps.
 
-Camera is a subrectangle of Map
 
-(left, bottom, right, top)
+   Camera is a subrectangle of Map
 
-e.g on
+   (left, bottom, right, top)
+
+   e.g on
  
--- Cloud Kingdom LE --
+   -- Cloud Kingdom LE --
 
-camera = (25, 44, 137, 168)
+   camera = (25, 44, 137, 168)
    map = ( 0,  0, 160, 208) 
+   
+   -- Ohana LE --
 
--- Ohana LE --
-
-camera = (24, 17, 137, 151)
+   camera = (24, 17, 137, 151)
    map = ( 0,  0, 160, 184)
+

@@ -8,20 +8,20 @@
 """
 
 import argparse
-from datetime import datetime
 import hashlib
-from PIL import Image, ImageDraw
 import os
 import cPickle as pickle
 import pprint
 import sc2reader
+import sys
+
+from PIL import Image, ImageDraw
+from datetime import datetime
 from sc2reader.events import *
 from sc2reader.objects import *
 from StringIO import StringIO
-import sys
 
 # (y_offset, w, h)
-minimap_data = { "Cloud Kingdom LE": (256-194, 127, 194-62) }
 scanner_radius = 13
 heatmap_colors = list(reversed(["rgb(255, 0, 0)", 
                                 "rgb(255, 78, 0)", 
@@ -55,8 +55,8 @@ def parse_args(args):
         help="Number of seconds to analyse in each match. Use 0 if you want the entire replay. Note that a higher number will make the script less accurate. Default is 300 (5 minutes).")
     parser.add_argument("--heatmap", default=False, action="store_true",
         help="Generate a heatmap of the scans")
-    parser.add_argument("--heatmap-points", default=100, metavar="N", type=int,
-        help="The number of points to use on the heatmap. This specifies that N*N points will be used in a grid")
+    parser.add_argument("--image-scale", default=None, type=float, dest="imscale",
+        help="The scale of all minimap images.")
     parser.add_argument("--no-cache", dest="cache", 
         action="store_false", default=True,
         help="Do not cache the calculation. This prevents both loading and saving to the cache.")
@@ -67,8 +67,7 @@ log = None
 
 def main(args):
     global log
-    
-            
+                
     if args.debug:
         def log_temp(msg):
             print "[{}]: DEBUG: {}".format(datetime.now().time(), msg)
@@ -105,21 +104,14 @@ def main(args):
         f.close()
 
     for hash in data:
-        image = load_minimap(data[hash]["map"], data[hash]["minimap"])
-        trans = Translation(minimap_data[data[hash]["map"]][1:], data[hash]["bounds"])
+        image = load_minimap(data[hash]["minimap"], data[hash]["bounds"], scale=args.imscale)
+        trans = Translation(data[hash]["bounds"], image.size)
         if args.heatmap:
-            create_scan_heatmap(image, trans, data[hash]["terran"], 
-                                steps=args.heatmap_points, 
-                                point_radius=1).show()
-        draw_scans(image, trans, data[hash]["terran"])
-
-        #test_drawing(image)
-        #image.show()
-        # log("Trying load")
-        # image.load()
-        # log("Trying save")
-        # image.save("out.tga")
-        image.show()
+            log("Generating heatmap")
+            heatim = create_scan_heatmap(image, trans, data[hash]["terran"])
+            log("Saving heatmap")
+            heatim.save("heatmap.bmp")
+        draw_scans(image, trans, data[hash]["terran"]).save("scans.bmp")
 
 def do_stuff(args):
     replays = sc2reader.load_replays(args.FILES, options={"load_map":True, "debug":True})
@@ -128,8 +120,13 @@ def do_stuff(args):
     for replay in replays:
         log("New replay")
 
-        terrans = [{'player': p, 'selected': None, 'scans': []} for p in replay.players if p.play_race == "Terran"]
-        zergs = [{'player': p, 'selected': None} for p in replay.players if p.play_race == "Zerg"]
+        terrans = [{'player': p, 
+                    'selected': None, 
+                    'scans': []} 
+                   for p in replay.players if p.play_race == "Terran"]
+        zergs = [{'player': p, 
+                  'selected': None} 
+                 for p in replay.players if p.play_race == "Zerg"]
                 
         for event in replay.events:
             if args.seconds != 0 and event.time.total_seconds() > args.seconds:
@@ -139,7 +136,6 @@ def do_stuff(args):
                 if t["player"].pid != event.pid:
                     continue
                 if isinstance(event, SelectionEvent):
-
                     t["selected"] = event.objects
                 elif isinstance(event, LocationAbilityEvent):
 
@@ -163,12 +159,20 @@ def do_stuff(args):
     return data
 
 
-def load_minimap(mapname, tgadata):
+def load_minimap(tgadata, bounds, scale=None):
     image = Image.open(StringIO(tgadata))
 
-    data = minimap_data[mapname]
+    center = (image.size[0] / 2.0, image.size[1] / 2.0)
+    playablew = bounds[2][2] - bounds[2][0]
+    playableh = bounds[2][3] - bounds[2][1]
 
-    return image.crop((0, data[0], data[1], data[0]+data[2])) 
+    image = image.crop((int(center[0] - (playablew / 2.0)),
+                        int(center[1] - (playableh / 2.0)),
+                        int(center[0] + (playablew / 2.0)),
+                        int(center[1] + (playableh / 2.0))))
+    if not (scale is None):
+        return image.resize((int(image.size[0] * scale), int(image.size[1] * scale)))
+    return image
 
 def test_drawing(image):
     
@@ -198,28 +202,28 @@ def draw_scans(image, translation, scans):
         
         
     del draw
+    return image
 
-def create_scan_heatmap(image, translation, scans, steps=10, 
-                        offsets=(2, 2), copy=True, point_radius=1):
+def create_scan_heatmap(image, translation, scans, copy=True):
     # Se how many times each point is hit by a scan
-    # The points is a steps*steps grid
+    # Every pixel is mapped to a point which is then checked
 
     map_size = translation.playable_size
+    bl = translation.bl
 
-    stepx = float(map_size[0] - 2*offsets[0]) / (steps - 1)
-    stepy = float(map_size[1] - 2*offsets[1]) / (steps - 1)
-    
-    points = [[(offsets[0] + col*stepx, offsets[1] + row*stepy), 0]
-              for col in range(steps) for row in range(steps)]
+    points = [[(col, row), 0]
+              for col in range(translation.minimap[0]) 
+              for row in range(translation.minimap[1])]
 
     for scan in scans:
         for point in points:
-            if inside(point[0], (scan[1], scan[2])):
+            if inside(translation.mini2map(point[0]), (scan[1], scan[2])):
                 point[1] += 1
 
-    
     # Normalize
     maximum = max(p[1] for p in points)
+    if maximum == 0:
+        return image.copy() if copy else image
     points = [(point[0], float(point[1]) / maximum) for point in points]
     points.sort(key=lambda x: x[1])
 
@@ -227,7 +231,6 @@ def create_scan_heatmap(image, translation, scans, steps=10,
     points = [(point[0], get_color(point[1])) for point in points]
 
     im = None
-
     if copy:
         im = image.copy()
     else:
@@ -236,25 +239,11 @@ def create_scan_heatmap(image, translation, scans, steps=10,
     draw = ImageDraw.Draw(im)
 
     for (pos, color) in points:
-        
-        pos2 = translation.map2mini(pos)
-        r2 = 0.5
-
-        # draw.ellipse((pos2[0] - (point_radius + r2), pos2[1] - (point_radius + r2),
-        #               pos2[0] + point_radius + r2, pos2[1] + point_radius + r2), 
-        #              fill="black")
-
         if color is None:
             continue
+        draw.point(pos, fill=color)
         
-        if point_radius <= 1:
-            draw.point(pos2, fill=color)
-        else:
-            draw.ellipse((pos2[0] - point_radius, pos2[1] - point_radius,
-                          pos2[0] + point_radius, pos2[1] + point_radius), 
-                         fill=color)
     del draw
-
     return im
 
 
@@ -274,13 +263,22 @@ def load_bounds(mpq):
     # http://www.galaxywiki.net/MapInfo_(File_Format)
 
     data = mpq.read_file("MapInfo")
+
+    version = load_int(data, 0x04)
     
-    width = load_int(data, 0x10)
-    height = load_int(data, 0x14)
+    if version == 0x15:
+        raise Exception("Unsupported s2ma/MapInfo version: {}".format(hex(version)))
+
+    if version == 0x18 or version == 0x20:
+        width = load_int(data, 0x10)
+        height = load_int(data, 0x14)
+    elif version == 0x17:
+        width = load_int(data, 0x08)
+        height = load_int(data, 0x0c)
     
-    i = 0x29
+    
+    i = 0x21 if version == 0x17 else 0x29
     byte = 0
-    
     firstPart = True
 
     # Two strings follow the initial bytes, find them
@@ -294,7 +292,10 @@ def load_bounds(mpq):
         i += 1
 
     camera = tuple(load_int(data, i + j * 4) for j in range(4))
-    camera = (camera[0] + 7, camera[1] + 4, camera[2] - 7, camera[3] - 4)
+    if version == 0x20:
+        camera = (camera[0], camera[1], camera[2], camera[3])
+    else:
+        camera = (camera[0], camera[1], camera[2], camera[3])
 
     return width, height, camera
 
@@ -302,23 +303,27 @@ def load_int(data, start):
     return sum(ord(data[start + i]) << 8*i for i in range(4))
 
 class Translation():
-    def __init__(self, minimap, map_bounds):
-        self.minimap = minimap
-        self.playable_size = tuple(map_bounds[0:2])
+    def __init__(self, map_bounds, minimap_size):
+        self.map_bounds = (0, 0) + tuple(map_bounds[0:2])
+        self.playable_size = (map_bounds[2][2] - map_bounds[2][0], 
+                              map_bounds[2][3] - map_bounds[2][1])
+        self.minimap = minimap_size
         self.camera = map_bounds[2]
-
-        self.scaleX = float(minimap[0]) / self.playable_size[0]
-        self.scaleY = float(minimap[1]) / self.playable_size[1]
+        self.bl = tuple(self.camera[0:2])
+        self.tr = tuple(self.camera[2:4])
     
+        self.scale = (self.playable_size[0] / float(minimap_size[0]),
+                      self.playable_size[1] / float(minimap_size[1]))
+
+        #print "Translation __init__"
+        #print "Scale {}".format(self.scale)
+
     def mini2map(self, x, y=None):
         if y is None:
             (x, y) = x
 
-        newx = x / self.scaleX
-        newy = self.map[1] - (y / self.scaleY)
-
-        newx = newx + self.camera[0]
-        newy = newy + self.camera[1]
+        newx = x * self.scale[0] + self.camera[0]
+        newy = (self.minimap[1] - y) * self.scale[1] + self.camera[1]
     
         return (newx, newy)
             
@@ -326,15 +331,9 @@ class Translation():
         if y is None:
             (x, y) = x
 
-        # TODO: This needs to be tested by scanning all the corners
-        #       of at least 2 maps
-            
-        newx = x# - self.camera[0]
-        newy = y# - self.camera[1]
-
-        newx = newx * self.scaleX
-        newy = (self.playable_size[1] - newy) * self.scaleY
-
+        newx = (x - self.camera[0]) / self.scale[0]
+        newy = self.minimap[1] - (y - self.camera[1]) / self.scale[1]
+        
         return (newx, newy)
 
     def box_map2mini(self, box):
