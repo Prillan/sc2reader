@@ -101,9 +101,9 @@ def main():
                     print "{:>6}   {}".format(event.frame, event)
                 else:
                     print event
-                #if isinstance(event, SelectionEvent):
-                #    print event.bank
-                #    print event.objects
+                if isinstance(event, SelectionEvent):
+                    print event.bank
+                    print event.objects
                 
                 if args.step:
                     if myGetch() == 'q':
