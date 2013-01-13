@@ -57,6 +57,8 @@ def parse_args(args):
         help="Generate a heatmap of the scans")
     parser.add_argument("--image-scale", default=None, type=float, dest="imscale",
         help="The scale of all minimap images.")
+    parser.add_argument('--output-dir', '-o', dest='dir', default='outputs', type=str,
+        help="Directory to save stuff to.")
     parser.add_argument("--no-cache", dest="cache", 
         action="store_false", default=True,
         help="Do not cache the calculation. This prevents both loading and saving to the cache.")
@@ -103,6 +105,9 @@ def main(args):
         pickle.dump(data, f)
         f.close()
 
+    if not os.path.exists(args.dir):
+        os.mkdir(args.dir)
+
     for hash in data:
         image = load_minimap(data[hash]["minimap"], data[hash]["bounds"], scale=args.imscale)
         trans = Translation(data[hash]["bounds"], image.size)
@@ -110,7 +115,7 @@ def main(args):
             log("Generating heatmap")
             heatim = create_scan_heatmap(image, trans, data[hash]["terran"])
             log("Saving heatmap")
-            heatim.save("heatmap.bmp")
+            heatim.save(os.path.join(args.dir, "heatmap_{}.bmp".format(hash)))
         draw_scans(image, trans, data[hash]["terran"]).save("scans.bmp")
 
 def do_stuff(args):
@@ -139,7 +144,7 @@ def do_stuff(args):
                     t["selected"] = event.objects
                 elif isinstance(event, LocationAbilityEvent):
 
-                    if event.ability_code == 0x1060:
+                    if event.ability_name == "CalldownScannerSweep":
                         log(event)
                         log(event.location)
                         t["scans"].append((event.frame,) + event.location)
@@ -263,44 +268,64 @@ def load_bounds(mpq):
     # http://www.galaxywiki.net/MapInfo_(File_Format)
 
     data = mpq.read_file("MapInfo")
+    #f = open("MapInfo", "wb")
+    #f.write(bytes(data))
+    #f.close()
+    data = StringIO(data)
 
     version = load_int(data, 0x04)
+
+    #print "version = {}".format(hex(version))
     
-    if version == 0x15:
+    
+    if version < 0x17 or version > 0x20:
         raise Exception("Unsupported s2ma/MapInfo version: {}".format(hex(version)))
 
-    if version == 0x18 or version == 0x20:
+    if 0x18 <= version and version <= 0x20:
         width = load_int(data, 0x10)
         height = load_int(data, 0x14)
     elif version == 0x17:
         width = load_int(data, 0x08)
         height = load_int(data, 0x0c)
     
-    
-    i = 0x21 if version == 0x17 else 0x29
-    byte = 0
-    firstPart = True
+    i = 0
+    if version == 0x17:
+        i = 0x21
+    elif version == 0x18 or version == 0x19:
+        i = 0x24
+    else:
+        i = 0x29
 
-    # Two strings follow the initial bytes, find them
-    while True:
-        byte = data[i]
-        if ord(byte) == 0:
-            i += 1
-            if not firstPart:
-                break
-            firstPart = False
-        i += 1
+    fog = load_string(data, i)
+    texture = load_string(data)
 
-    camera = tuple(load_int(data, i + j * 4) for j in range(4))
+    #print width, height, fog, texture
+
+    camera = tuple(load_int(data) for i in range(4))
     if version == 0x20:
         camera = (camera[0], camera[1], camera[2], camera[3])
     else:
         camera = (camera[0], camera[1], camera[2], camera[3])
 
+    #print camera
+    
     return width, height, camera
 
-def load_int(data, start):
-    return sum(ord(data[start + i]) << 8*i for i in range(4))
+def load_int(data, start=None):
+    if not (start is None):
+        data.seek(start)
+    return sum(ord(data.read(1)) << 8*i for i in range(4))
+def load_string(data, start=None):
+    if not (start is None):
+        data.seek(start)
+    s = ""
+    while True:
+        b = data.read(1)
+        if len(b) == 0:
+            return s
+        if ord(b) == 0x00:
+            return s
+        s += b
 
 class Translation():
     def __init__(self, map_bounds, minimap_size):

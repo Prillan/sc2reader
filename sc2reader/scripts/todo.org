@@ -1,9 +1,9 @@
 
-** TODO Scan corners of maps
+** DONE Scan corners of maps
 
 To check that the calculations are correctly done.
 
-** TODO Parse camera bounds according to
+** DONE Parse camera bounds according to
    http://www.galaxywiki.net/MapInfo_(File_Format)
    - Note taken on [2013-01-13 sö 00:46] \\
      Apparentely the +7/+4/-7/-4 data in the above link was wrong and screwed up the heatmaps.
